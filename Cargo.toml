@@ -1,6 +1,6 @@
 [package]
 edition = "2024"
-name = "inky-impression-hal"
+name = "epd-e6-driver"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
 
@@ -22,6 +22,9 @@ rp235x-hal = { version = "0.3", features = [
     "critical-section-impl",
     "binary-info",
 ] }
+embedded-hal-bus = "0.3.0"
+embedded-graphics = { version = "0.8.1", features = ["defmt"] }
+embedded-alloc = "0.6.0"
 
 # cargo build/run
 [profile.dev]
@@ -30,6 +33,13 @@ debug-assertions = true
 opt-level = 2
 overflow-checks = true
 
+# do not optimize proc-macro crates = faster builds from scratch
+[profile.dev.build-override]
+debug = false
+debug-assertions = false
+overflow-checks = false
+opt-level = 0
+
 # cargo build/run --release
 [profile.release]
 debug = 2
@@ -37,13 +47,6 @@ debug-assertions = false
 lto = 'fat'
 opt-level = 2
 overflow-checks = false
-
-# do not optimize proc-macro crates = faster builds from scratch
-[profile.dev.build-override]
-debug = false
-debug-assertions = false
-overflow-checks = false
-opt-level = 0
 
 [profile.release.build-override]
 debug = false

@@ -2,24 +2,24 @@
 #![no_main]
 extern crate alloc;
 
+use core::iter;
+use defmt::export::display;
 use defmt::*;
 use defmt_rtt as _;
-use embedded_graphics::mono_font::MonoTextStyle;
-use embedded_graphics::mono_font::iso_8859_16::FONT_10X20;
-use embedded_graphics::prelude::*;
-use embedded_graphics::primitives::{Circle, PrimitiveStyleBuilder, StyledDrawable, Triangle};
-use embedded_graphics::text::{Alignment, Text};
+use embedded_alloc::LlffHeap as Heap;
+use embedded_hal::delay::DelayNs;
+use embedded_hal::digital::OutputPin;
+use embedded_hal::spi::MODE_3;
+use embedded_hal_bus::spi::ExclusiveDevice;
+use epd_e6_driver::prelude::*;
 use panic_probe as _;
 use rp235x_hal::clocks::init_clocks_and_plls;
 use rp235x_hal::fugit::RateExtU32;
 use rp235x_hal::gpio::{FunctionSioInput, FunctionSioOutput, FunctionSpi, Pin, PullNone, PullUp};
 use rp235x_hal::pac;
+use rp235x_hal::spi::Disabled;
+use rp235x_hal::spi::FrameFormat::MotorolaSpi;
 use rp235x_hal::{self as hal, Spi, Timer, entry};
-
-mod display;
-mod e6_display;
-
-mod nibbles_vec;
 
 // Provide an alias for our BSP so we can switch targets quickly.
 // Uncomment the BSP you included in Cargo.toml, the rest of the code does not need to change.
@@ -30,17 +30,11 @@ mod nibbles_vec;
 #[used]
 pub static IMAGE_DEF: hal::block::ImageDef = hal::block::ImageDef::secure_exe();
 
-use crate::display::Display;
-use crate::e6_display::E6Color;
-use embedded_alloc::LlffHeap as Heap;
-use embedded_hal::digital::OutputPin;
-use embedded_hal::spi::MODE_3;
-use embedded_hal_bus::spi::ExclusiveDevice;
-use rp235x_hal::spi::Disabled;
-use rp235x_hal::spi::FrameFormat::MotorolaSpi;
-
 #[global_allocator]
 static HEAP: Heap = Heap::empty();
+
+const WIDTH: u16 = 800;
+const HEIGHT: u16 = 480;
 
 #[entry]
 fn main() -> ! {
@@ -78,15 +72,6 @@ fn main() -> ! {
         &mut pac.RESETS,
     );
 
-    // This is the correct pin on the Raspberry Pico 2 board. On other boards, even if they have an
-    // on-board LED, it might need to be changed.
-    //
-    // Notably, on the Pico 2 W, the LED is not connected to any of the RP2350 GPIOs but to the cyw43 module instead.
-    // One way to do that is by using [embassy](https://github.com/embassy-rs/embassy/blob/main/examples/rp/src/bin/wifi_blinky.rs)
-    //
-    // If you have a Pico W and want to toggle a LED with a simple GPIO output pin, you can connect an external
-    // LED to one of the GPIO pins, and reference that pin here. Don't forget adding an appropriate resistor
-    // in series with the LED.
     let mut led_pin = pins.gpio9.into_push_pull_output();
 
     //SPI
@@ -97,19 +82,17 @@ fn main() -> ! {
     let spi_sck_pin: Pin<_, FunctionSpi, PullNone> = pins.gpio10.reconfigure();
     let spi_miso_pin: Pin<_, FunctionSpi, PullNone> = pins.gpio11.reconfigure();
     let spi_mosi_pin: Pin<_, FunctionSpi, PullNone> = pins.gpio12.reconfigure();
+
     let mut timer = Timer::new_timer0(pac.TIMER0, &mut pac.RESETS, &clocks);
 
     let mut spi: Spi<Disabled, _, _> =
         Spi::new(pac.SPI1, (spi_miso_pin, spi_mosi_pin, spi_sck_pin));
-    spi.set_baudrate(1000.kHz(), 1000.kHz());
     let spi = spi.init(&mut pac.RESETS, 1000.kHz(), 1000.kHz(), MotorolaSpi(MODE_3));
     let spi_device = ExclusiveDevice::new(spi, spi_cs_pin, timer).unwrap();
 
-    //embedded_hal::delay::DelayNs::delay_ms(&mut timer, 3000);
-
-    let mut display = e6_display::E6Display::new(
-        800,
-        480,
+    let mut display = E6Display::new(
+        WIDTH,
+        HEIGHT,
         spi_device,
         spi_dc_pin,
         spi_reset_pin,
@@ -119,53 +102,34 @@ fn main() -> ! {
 
     display.initialize().unwrap();
 
-    let style1 = PrimitiveStyleBuilder::new()
-        .stroke_color(E6Color::Green)
-        .stroke_width(5)
-        .build();
-    let style2 = PrimitiveStyleBuilder::new()
-        .stroke_color(E6Color::Red)
-        .stroke_width(5)
-        .build();
-    let style3 = PrimitiveStyleBuilder::new()
-        .stroke_color(E6Color::Yellow)
-        .stroke_width(5)
-        .build();
-
-    display.clear(E6Color::White).unwrap();
-
-    Triangle::new(
-        Point::new(50, 50),
-        Point::new(100, 100),
-        Point::new(100, 80),
-    )
-    .into_styled(style1)
-    .draw(&mut display)
-    .unwrap();
-
-    Circle::new(Point::new(500, 150), 50)
-        .draw_styled(&style2, &mut display)
-        .unwrap();
-
-    let character_style = MonoTextStyle::new(&FONT_10X20, E6Color::Black);
-    Text::with_alignment(
-        "Hello world!",
-        display.bounding_box().center() + Point::new(0, 15),
-        character_style,
-        Alignment::Center,
-    )
-    .draw(&mut display)
-    .unwrap();
-
+    let line_width = display.width() / 6;
+    for (index, color) in [
+        E6Color::Black,
+        E6Color::White,
+        E6Color::Red,
+        E6Color::Green,
+        E6Color::Yellow,
+        E6Color::Blue,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        display
+            .partial_update(
+                iter::repeat_n(color, display.len()),
+                index as u16 * line_width..=(index as u16 + 1) * line_width - 1,
+                0..=display.height() - 1,
+            )
+            .unwrap();
+        info!("Fill color: {}", color);
+    }
     display.refresh().unwrap();
 
     loop {
-        // info!("on!");
         led_pin.set_high().unwrap();
-        embedded_hal::delay::DelayNs::delay_ms(&mut timer, 500);
-        // info!("off!");
+        timer.delay_ms(1000);
         led_pin.set_low().unwrap();
-        embedded_hal::delay::DelayNs::delay_ms(&mut timer, 500);
+        timer.delay_ms(1000);
     }
 }
 

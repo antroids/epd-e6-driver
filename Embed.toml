@@ -19,7 +19,7 @@ halt_afterwards = false
 
 [default.general]
 chip = "RP235x"
-log_level = "WARN"
+log_level = "TRACE"
 # RP2350 does not support connect_under_reset?
 connect_under_reset = false
 

@@ -1,0 +1,25 @@
+[package]
+name = "async-display-test"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+defmt = { workspace = true }
+defmt-rtt = { workspace = true }
+panic-probe = { workspace = true }
+rp235x-hal = { workspace = true }
+embedded-hal = { workspace = true }
+embedded-hal-bus = { workspace = true }
+embedded-graphics = { workspace = true }
+embedded-alloc = { workspace = true }
+
+epd-e6-driver = { path = "../../.", features = ["async"] }
+
+embassy-rp = { version = "0.4.0", features = ["rp235xb", "defmt", "unstable-pac", "time-driver"] }
+embassy-executor = { version = "0.7.0", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt", "task-arena-size-32768"] }
+embassy-time = "0.4.0"
+embassy-sync = "0.6.2"
+cortex-m-rt = "0.7.5"
+cortex-m = { version = "0.7.7", features = ["inline-asm"] }
+critical-section = "1.2.0"
+embassy-embedded-hal = "0.3.0"

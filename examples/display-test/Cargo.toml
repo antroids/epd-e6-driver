@@ -1,0 +1,16 @@
+[package]
+name = "display-test"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+defmt = { workspace = true }
+defmt-rtt = { workspace = true }
+panic-probe = { workspace = true }
+rp235x-hal = { workspace = true }
+embedded-hal = { workspace = true }
+embedded-hal-bus = { workspace = true }
+embedded-graphics = { workspace = true }
+embedded-alloc = { workspace = true }
+
+epd-e6-driver = { path = "../../." }

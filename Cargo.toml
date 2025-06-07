@@ -1,14 +1,13 @@
 [package]
 edition = "2024"
 name = "epd-e6-driver"
-version = "0.1.0"
+version = "0.1.1"
 license = "MIT OR Apache-2.0"
 
-[dependencies]
-cortex-m = "0.7"
-cortex-m-rt = "0.7"
-embedded-hal = { version = "1.0.0" }
+[features]
+async = ["dep:embedded-hal-async"]
 
+[dependencies]
 defmt = "1"
 defmt-rtt = "1"
 panic-probe = { version = "1", features = ["print-defmt"] }
@@ -22,9 +21,21 @@ rp235x-hal = { version = "0.3", features = [
     "critical-section-impl",
     "binary-info",
 ] }
+embedded-hal = { version = "1.0.0" }
 embedded-hal-bus = "0.3.0"
 embedded-graphics = { version = "0.8.1", features = ["defmt"] }
 embedded-alloc = "0.6.0"
+embedded-hal-async = { version = "1.0.0", optional = true }
+
+[dev-dependencies]
+embassy-rp = { version = "0.4.0", features = ["rp235xb", "defmt", "unstable-pac", "time-driver"] }
+embassy-executor = { version = "0.7.0", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt", "task-arena-size-32768"] }
+embassy-time = "0.4.0"
+embassy-sync = "0.6.2"
+cortex-m-rt = "0.7.5"
+cortex-m = { version = "0.7.7", features = ["inline-asm"] }
+critical-section = "1.2.0"
+embassy-embedded-hal = "0.3.0"
 
 # cargo build/run
 [profile.dev]
@@ -67,3 +78,13 @@ debug = 2
 debug-assertions = false
 lto = 'fat'
 opt-level = 3
+
+[[example]]
+name = "display_test"
+path = "examples/display_test.rs"
+required-features = []
+
+[[example]]
+name = "async_display_test"
+path = "examples/async_display_test.rs"
+required-features = ["async"]

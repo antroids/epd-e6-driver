@@ -10,10 +10,26 @@ use embedded_hal::delay::DelayNs;
 use embedded_hal::digital::{InputPin, OutputPin, PinState};
 use embedded_hal::spi::SpiDevice;
 
-const SPI_CHUNK_SIZE: usize = 4096;
-const RESET_DELAY_MS: u32 = 30;
-const BUSY_WAIT_DELAY_MS: u32 = 100;
-const BUSY_WAIT_TIMEOUT_MS: Duration = Duration::from_millis(20_000);
+pub(crate) const SPI_CHUNK_SIZE: usize = 4096;
+pub(crate) const RESET_DELAY_MS: u32 = 30;
+pub(crate) const BUSY_WAIT_DELAY_MS: u32 = 100;
+pub(crate) const BUSY_WAIT_TIMEOUT_MS: Duration = Duration::from_millis(20_000);
+
+pub(crate) const INIT_SEQUENCE: &[(CommandCode, &[u8])] = &[
+    (CommandCode::INIT, &[0x49, 0x55, 0x20, 0x08, 0x09, 0x18]),
+    (CommandCode::PWR, &[0x3F]),
+    (CommandCode::PSR, &[0x5F, 0x69]),
+    (CommandCode::BTST1, &[0x40, 0x1F, 0x1F, 0x2C]),
+    (CommandCode::BTST3, &[0x6F, 0x1F, 0x1F, 0x22]),
+    (CommandCode::BTST2, &[0x6F, 0x1F, 0x17, 0x17]),
+    (CommandCode::POFS, &[0x00, 0x54, 0x00, 0x44]),
+    (CommandCode::TCON, &[0x02, 0x00]),
+    (CommandCode::PLL, &[0x08]),
+    (CommandCode::CDI, &[0x3F]),
+    (CommandCode::TRES, &[0x03, 0x20, 0x01, 0xE0]),
+    (CommandCode::PWS, &[0x2F]),
+    (CommandCode::VDCS, &[0x01]),
+];
 
 pub struct E6Display<DC: OutputPin, RST: OutputPin, BUSY: InputPin, SPI: SpiDevice, DELAY: DelayNs>
 {
@@ -28,9 +44,9 @@ pub struct E6Display<DC: OutputPin, RST: OutputPin, BUSY: InputPin, SPI: SpiDevi
 }
 
 #[repr(u8)]
-#[derive(Format)]
+#[derive(Format, Copy, Clone)]
 #[allow(dead_code)]
-enum CommandCode {
+pub(crate) enum CommandCode {
     PSR = 0x00,
     PWR = 0x01,
     POF = 0x02,
@@ -54,7 +70,7 @@ enum CommandCode {
     INIT = 0xAA,
 }
 
-enum DataCommand {
+pub(crate) enum DataCommand {
     Data,
     Command,
 }
@@ -214,20 +230,11 @@ impl<DC: OutputPin, RST: OutputPin, BUSY: InputPin, SPI: SpiDevice, DELAY: Delay
     for E6Display<DC, RST, BUSY, SPI, DELAY>
 {
     fn initialize(&mut self) -> Result<(), Error> {
+        info!("Initialize display");
         self.reset()?;
-        self.spi_write_command_and_data(CommandCode::INIT, &[0x49, 0x55, 0x20, 0x08, 0x09, 0x18])?;
-        self.spi_write_command_and_data(CommandCode::PWR, &[0x3F])?;
-        self.spi_write_command_and_data(CommandCode::PSR, &[0x5F, 0x69])?;
-        self.spi_write_command_and_data(CommandCode::BTST1, &[0x40, 0x1F, 0x1F, 0x2C])?;
-        self.spi_write_command_and_data(CommandCode::BTST3, &[0x6F, 0x1F, 0x1F, 0x22])?;
-        self.spi_write_command_and_data(CommandCode::BTST2, &[0x6F, 0x1F, 0x17, 0x17])?;
-        self.spi_write_command_and_data(CommandCode::POFS, &[0x00, 0x54, 0x00, 0x44])?;
-        self.spi_write_command_and_data(CommandCode::TCON, &[0x02, 0x00])?;
-        self.spi_write_command_and_data(CommandCode::PLL, &[0x08])?;
-        self.spi_write_command_and_data(CommandCode::CDI, &[0x3F])?;
-        self.spi_write_command_and_data(CommandCode::TRES, &[0x03, 0x20, 0x01, 0xE0])?;
-        self.spi_write_command_and_data(CommandCode::PWS, &[0x2F])?;
-        self.spi_write_command_and_data(CommandCode::VDCS, &[0x01])?;
+        for (command_code, data) in INIT_SEQUENCE {
+            self.spi_write_command_and_data(*command_code, data)?;
+        }
         Ok(())
     }
     fn update(&mut self, iter: impl IntoIterator<Item = E6Color>) -> Result<(), Error> {

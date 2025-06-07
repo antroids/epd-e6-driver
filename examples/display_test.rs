@@ -3,7 +3,6 @@
 extern crate alloc;
 
 use core::iter;
-use defmt::export::display;
 use defmt::*;
 use defmt_rtt as _;
 use embedded_alloc::LlffHeap as Heap;
@@ -85,8 +84,7 @@ fn main() -> ! {
 
     let mut timer = Timer::new_timer0(pac.TIMER0, &mut pac.RESETS, &clocks);
 
-    let mut spi: Spi<Disabled, _, _> =
-        Spi::new(pac.SPI1, (spi_miso_pin, spi_mosi_pin, spi_sck_pin));
+    let spi: Spi<Disabled, _, _> = Spi::new(pac.SPI1, (spi_miso_pin, spi_mosi_pin, spi_sck_pin));
     let spi = spi.init(&mut pac.RESETS, 1000.kHz(), 1000.kHz(), MotorolaSpi(MODE_3));
     let spi_device = ExclusiveDevice::new(spi, spi_cs_pin, timer).unwrap();
 

@@ -54,3 +54,29 @@ pub trait AsRgbColor {
 }
 
 pub trait Color {}
+
+#[cfg(feature = "async")]
+pub trait AsyncDisplay<C: Color> {
+    fn initialize(&mut self) -> impl Future<Output = Result<(), Error>>;
+    fn update(
+        &mut self,
+        iter: impl IntoIterator<Item = C>,
+    ) -> impl Future<Output = Result<(), Error>>;
+    fn refresh(&mut self) -> impl Future<Output = Result<(), Error>>;
+    fn width(&self) -> u16;
+    fn height(&self) -> u16;
+
+    fn len(&self) -> usize {
+        self.width() as usize * self.height() as usize
+    }
+}
+
+#[cfg(feature = "async")]
+pub trait AsyncPartialUpdate<C: Color> {
+    fn partial_update(
+        &mut self,
+        iter: impl IntoIterator<Item = C>,
+        horizontal: RangeInclusive<u16>,
+        vertical: RangeInclusive<u16>,
+    ) -> impl Future<Output = Result<(), Error>>;
+}

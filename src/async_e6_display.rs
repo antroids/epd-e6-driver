@@ -5,6 +5,9 @@ use crate::e6_display::{
 use crate::nibbles_vec::NibblesVec;
 use core::ops::RangeInclusive;
 use defmt::info;
+use embedded_graphics::Pixel;
+use embedded_graphics::draw_target::DrawTarget;
+use embedded_graphics::geometry::{OriginDimensions, Size};
 use embedded_hal::digital::{OutputPin, PinState};
 use embedded_hal_async::delay::DelayNs;
 use embedded_hal_async::digital::Wait;
@@ -231,5 +234,41 @@ impl<
 
     fn height(&self) -> u16 {
         self.height
+    }
+}
+
+impl<
+    DC: OutputPin + Send,
+    RST: OutputPin + Send,
+    BUSY: Wait + Send,
+    SPI: SpiDevice + Send,
+    DELAY: DelayNs + Send,
+> OriginDimensions for AsyncE6Display<DC, RST, BUSY, SPI, DELAY>
+{
+    fn size(&self) -> Size {
+        Size::new(self.width as u32, self.height as u32)
+    }
+}
+
+impl<
+    DC: OutputPin + Send,
+    RST: OutputPin + Send,
+    BUSY: Wait + Send,
+    SPI: SpiDevice + Send,
+    DELAY: DelayNs + Send,
+> DrawTarget for AsyncE6Display<DC, RST, BUSY, SPI, DELAY>
+{
+    type Color = E6Color;
+    type Error = Error;
+
+    fn draw_iter<I>(&mut self, pixels: I) -> Result<(), Self::Error>
+    where
+        I: IntoIterator<Item = Pixel<Self::Color>>,
+    {
+        for Pixel(p, c) in pixels.into_iter().take(self.frame_buffer.len()) {
+            self.frame_buffer
+                .set(self.pixel_index(p.x as usize, p.y as usize), c);
+        }
+        Ok(())
     }
 }

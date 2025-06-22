@@ -1,5 +1,6 @@
-pub use crate::display::{AsRgbColor, Color, Display, Error, PartialUpdate, RgbColor};
-use crate::nibbles_vec::NibblesVec;
+pub(crate) use crate::display::Display;
+pub use crate::display::{AsRgbColor, BlockingDisplay, Color, Error, PartialUpdate, RgbColor};
+use crate::nibbles::Nibbles;
 use core::ops::{RangeInclusive, SubAssign};
 use core::time::Duration;
 use defmt::{Format, info};
@@ -31,8 +32,14 @@ pub(crate) const INIT_SEQUENCE: &[(CommandCode, &[u8])] = &[
     (CommandCode::VDCS, &[0x01]),
 ];
 
-pub struct E6Display<DC: OutputPin, RST: OutputPin, BUSY: InputPin, SPI: SpiDevice, DELAY: DelayNs>
-{
+pub struct E6Display<
+    DC: OutputPin,
+    RST: OutputPin,
+    BUSY: InputPin,
+    SPI: SpiDevice,
+    DELAY: DelayNs,
+    S: AsMut<[u8]> + AsRef<[u8]>,
+> {
     spi: SPI,
     dc_pin: DC,
     rst_pin: RST,
@@ -40,7 +47,7 @@ pub struct E6Display<DC: OutputPin, RST: OutputPin, BUSY: InputPin, SPI: SpiDevi
     width: u16,
     height: u16,
     delay_source: DELAY,
-    frame_buffer: NibblesVec<E6Color>,
+    frame_buffer: Nibbles<S, E6Color>,
 }
 
 #[repr(u8)]
@@ -75,8 +82,15 @@ pub(crate) enum DataCommand {
     Command,
 }
 
-impl<DC: OutputPin, RST: OutputPin, BUSY: InputPin, SPI: SpiDevice, DELAY: DelayNs>
-    E6Display<DC, RST, BUSY, SPI, DELAY>
+#[cfg(feature = "blocking")]
+impl<
+    DC: OutputPin,
+    RST: OutputPin,
+    BUSY: InputPin,
+    SPI: SpiDevice,
+    DELAY: DelayNs,
+    S: AsMut<[u8]> + AsRef<[u8]>,
+> E6Display<DC, RST, BUSY, SPI, DELAY, S>
 {
     pub fn new(
         width: u16,
@@ -86,7 +100,12 @@ impl<DC: OutputPin, RST: OutputPin, BUSY: InputPin, SPI: SpiDevice, DELAY: Delay
         rst_pin: RST,
         busy_pin: BUSY,
         delay_source: DELAY,
+        frame_buffer: Nibbles<S, E6Color>,
     ) -> Self {
+        assert!(
+            frame_buffer.len() < width as usize * height as usize,
+            "Frame Buffer has not enough space for all pixels"
+        );
         Self {
             spi,
             dc_pin,
@@ -95,7 +114,7 @@ impl<DC: OutputPin, RST: OutputPin, BUSY: InputPin, SPI: SpiDevice, DELAY: Delay
             width,
             height,
             delay_source,
-            frame_buffer: NibblesVec::with_len(width as usize * height as usize),
+            frame_buffer,
         }
     }
 
@@ -203,14 +222,15 @@ impl<DC: OutputPin, RST: OutputPin, BUSY: InputPin, SPI: SpiDevice, DELAY: Delay
 
     fn send_frame_buffer(&mut self) -> Result<(), Error> {
         let mut buf = [0u8; SPI_CHUNK_SIZE];
-        let len = self.frame_buffer.as_slice().len();
+        let len = self.frame_buffer.len();
         let mut index = 0;
 
         self.spi_write_command(CommandCode::DTM1)?;
         while index < len {
             let chunk_size = (len - index).min(SPI_CHUNK_SIZE);
-            (&mut buf[0..chunk_size])
-                .copy_from_slice(&self.frame_buffer.as_slice()[index..index + chunk_size]);
+            (&mut buf[0..chunk_size]).copy_from_slice(
+                &self.frame_buffer.as_underlying_data().as_ref()[index..index + chunk_size],
+            );
             self.spi_write_data(&buf[0..chunk_size])?;
             self.busy_wait()?;
             index += chunk_size;
@@ -226,8 +246,34 @@ impl<DC: OutputPin, RST: OutputPin, BUSY: InputPin, SPI: SpiDevice, DELAY: Delay
     }
 }
 
-impl<DC: OutputPin, RST: OutputPin, BUSY: InputPin, SPI: SpiDevice, DELAY: DelayNs> Display<E6Color>
-    for E6Display<DC, RST, BUSY, SPI, DELAY>
+#[cfg(feature = "blocking")]
+impl<
+    DC: OutputPin,
+    RST: OutputPin,
+    BUSY: InputPin,
+    SPI: SpiDevice,
+    DELAY: DelayNs,
+    S: AsMut<[u8]> + AsRef<[u8]>,
+> Display<E6Color> for E6Display<DC, RST, BUSY, SPI, DELAY, S>
+{
+    fn width(&self) -> u16 {
+        self.width
+    }
+
+    fn height(&self) -> u16 {
+        self.height
+    }
+}
+
+#[cfg(feature = "blocking")]
+impl<
+    DC: OutputPin,
+    RST: OutputPin,
+    BUSY: InputPin,
+    SPI: SpiDevice,
+    DELAY: DelayNs,
+    S: AsMut<[u8]> + AsRef<[u8]>,
+> BlockingDisplay<E6Color> for E6Display<DC, RST, BUSY, SPI, DELAY, S>
 {
     fn initialize(&mut self) -> Result<(), Error> {
         info!("Initialize display");
@@ -251,18 +297,17 @@ impl<DC: OutputPin, RST: OutputPin, BUSY: InputPin, SPI: SpiDevice, DELAY: Delay
         self.send_frame_buffer()?;
         self.refresh_display()
     }
-
-    fn width(&self) -> u16 {
-        self.width
-    }
-
-    fn height(&self) -> u16 {
-        self.height
-    }
 }
 
-impl<DC: OutputPin, RST: OutputPin, BUSY: InputPin, SPI: SpiDevice, DELAY: DelayNs>
-    PartialUpdate<E6Color> for E6Display<DC, RST, BUSY, SPI, DELAY>
+#[cfg(feature = "blocking")]
+impl<
+    DC: OutputPin,
+    RST: OutputPin,
+    BUSY: InputPin,
+    SPI: SpiDevice,
+    DELAY: DelayNs,
+    S: AsMut<[u8]> + AsRef<[u8]>,
+> PartialUpdate<E6Color> for E6Display<DC, RST, BUSY, SPI, DELAY, S>
 {
     fn partial_update(
         &mut self,
@@ -275,7 +320,7 @@ impl<DC: OutputPin, RST: OutputPin, BUSY: InputPin, SPI: SpiDevice, DELAY: Delay
             for x in horizontal.clone() {
                 if let Some(color) = iter.next() {
                     self.frame_buffer
-                        .set(self.pixel_index(x as usize, y as usize), color.into());
+                        .set(self.pixel_index(x as usize, y as usize), color);
                 }
             }
         }
@@ -338,16 +383,30 @@ impl From<E6Color> for u8 {
     }
 }
 
-impl<DC: OutputPin, RST: OutputPin, BUSY: InputPin, SPI: SpiDevice, DELAY: DelayNs> OriginDimensions
-    for E6Display<DC, RST, BUSY, SPI, DELAY>
+#[cfg(feature = "blocking")]
+impl<
+    DC: OutputPin,
+    RST: OutputPin,
+    BUSY: InputPin,
+    SPI: SpiDevice,
+    DELAY: DelayNs,
+    S: AsMut<[u8]> + AsRef<[u8]>,
+> OriginDimensions for E6Display<DC, RST, BUSY, SPI, DELAY, S>
 {
     fn size(&self) -> Size {
         Size::new(self.width as u32, self.height as u32)
     }
 }
 
-impl<DC: OutputPin, RST: OutputPin, BUSY: InputPin, SPI: SpiDevice, DELAY: DelayNs> DrawTarget
-    for E6Display<DC, RST, BUSY, SPI, DELAY>
+#[cfg(feature = "blocking")]
+impl<
+    DC: OutputPin,
+    RST: OutputPin,
+    BUSY: InputPin,
+    SPI: SpiDevice,
+    DELAY: DelayNs,
+    S: AsMut<[u8]> + AsRef<[u8]>,
+> DrawTarget for E6Display<DC, RST, BUSY, SPI, DELAY, S>
 {
     type Color = E6Color;
     type Error = Error;

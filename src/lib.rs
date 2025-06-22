@@ -6,12 +6,19 @@ pub mod async_e6_display;
 pub mod display;
 
 pub mod e6_display;
-mod nibbles_vec;
+mod nibbles;
 
 pub mod prelude {
-    pub use crate::e6_display::Display;
+    pub use crate::display::Display;
     pub use crate::e6_display::E6Color;
+    pub use crate::nibbles::Nibbles;
+    pub use crate::nibbles::NibblesIterator;
+
+    #[cfg(feature = "blocking")]
+    pub use crate::e6_display::BlockingDisplay;
+    #[cfg(feature = "blocking")]
     pub use crate::e6_display::E6Display;
+    #[cfg(feature = "blocking")]
     pub use crate::e6_display::PartialUpdate;
 
     #[cfg(feature = "async")]

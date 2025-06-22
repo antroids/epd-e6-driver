@@ -9,6 +9,8 @@ members = ["examples/display-test", "examples/async-display-test"]
 default-members = ["."]
 
 [features]
+default = ["blocking"]
+blocking = []
 async = ["dep:embedded-hal-async"]
 
 [workspace.dependencies]

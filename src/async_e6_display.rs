@@ -1,8 +1,8 @@
-use crate::display::{AsyncDisplay, AsyncPartialUpdate, Error};
+use crate::display::{AsyncDisplay, AsyncPartialUpdate, Display, Error};
 use crate::e6_display::{
     CommandCode, DataCommand, E6Color, INIT_SEQUENCE, RESET_DELAY_MS, SPI_CHUNK_SIZE,
 };
-use crate::nibbles_vec::NibblesVec;
+use crate::nibbles::Nibbles;
 use core::ops::RangeInclusive;
 use defmt::info;
 use embedded_graphics::Pixel;
@@ -13,8 +13,14 @@ use embedded_hal_async::delay::DelayNs;
 use embedded_hal_async::digital::Wait;
 use embedded_hal_async::spi::SpiDevice;
 
-pub struct AsyncE6Display<DC: OutputPin, RST: OutputPin, BUSY: Wait, SPI: SpiDevice, DELAY: DelayNs>
-{
+pub struct AsyncE6Display<
+    DC: OutputPin,
+    RST: OutputPin,
+    BUSY: Wait,
+    SPI: SpiDevice,
+    DELAY: DelayNs,
+    S: AsMut<[u8]> + AsRef<[u8]>,
+> {
     spi: SPI,
     dc_pin: DC,
     rst_pin: RST,
@@ -22,11 +28,17 @@ pub struct AsyncE6Display<DC: OutputPin, RST: OutputPin, BUSY: Wait, SPI: SpiDev
     width: u16,
     height: u16,
     delay_source: DELAY,
-    frame_buffer: NibblesVec<E6Color>,
+    frame_buffer: Nibbles<S, E6Color>,
 }
 
-impl<DC: OutputPin, RST: OutputPin, BUSY: Wait, SPI: SpiDevice, DELAY: DelayNs>
-    AsyncE6Display<DC, RST, BUSY, SPI, DELAY>
+impl<
+    DC: OutputPin,
+    RST: OutputPin,
+    BUSY: Wait,
+    SPI: SpiDevice,
+    DELAY: DelayNs,
+    S: AsMut<[u8]> + AsRef<[u8]>,
+> AsyncE6Display<DC, RST, BUSY, SPI, DELAY, S>
 {
     pub fn new(
         width: u16,
@@ -36,7 +48,12 @@ impl<DC: OutputPin, RST: OutputPin, BUSY: Wait, SPI: SpiDevice, DELAY: DelayNs>
         rst_pin: RST,
         busy_pin: BUSY,
         delay_source: DELAY,
+        frame_buffer: Nibbles<S, E6Color>,
     ) -> Self {
+        assert!(
+            frame_buffer.len() < width as usize * height as usize,
+            "Frame Buffer has not enough space for all pixels"
+        );
         Self {
             spi,
             dc_pin,
@@ -45,7 +62,7 @@ impl<DC: OutputPin, RST: OutputPin, BUSY: Wait, SPI: SpiDevice, DELAY: DelayNs>
             width,
             height,
             delay_source,
-            frame_buffer: NibblesVec::with_len(width as usize * height as usize),
+            frame_buffer,
         }
     }
 
@@ -146,14 +163,15 @@ impl<DC: OutputPin, RST: OutputPin, BUSY: Wait, SPI: SpiDevice, DELAY: DelayNs>
 
     async fn send_frame_buffer(&mut self) -> Result<(), Error> {
         let mut buf = [0u8; SPI_CHUNK_SIZE];
-        let len = self.frame_buffer.as_slice().len();
+        let len = self.frame_buffer.len();
         let mut index = 0;
 
         self.spi_write_command(CommandCode::DTM1).await?;
         while index < len {
             let chunk_size = (len - index).min(SPI_CHUNK_SIZE);
-            (&mut buf[0..chunk_size])
-                .copy_from_slice(&self.frame_buffer.as_slice()[index..index + chunk_size]);
+            (&mut buf[0..chunk_size]).copy_from_slice(
+                &self.frame_buffer.as_underlying_data().as_ref()[index..index + chunk_size],
+            );
             self.spi_write_data(&buf[0..chunk_size]).await?;
             self.busy_wait().await?;
             index += chunk_size;
@@ -175,7 +193,8 @@ impl<
     BUSY: Wait + Send,
     SPI: SpiDevice + Send,
     DELAY: DelayNs + Send,
-> AsyncPartialUpdate<E6Color> for AsyncE6Display<DC, RST, BUSY, SPI, DELAY>
+    S: AsMut<[u8]> + AsRef<[u8]>,
+> AsyncPartialUpdate<E6Color> for AsyncE6Display<DC, RST, BUSY, SPI, DELAY, S>
 {
     async fn partial_update(
         &mut self,
@@ -188,7 +207,7 @@ impl<
             for x in horizontal.clone() {
                 if let Some(color) = iter.next() {
                     self.frame_buffer
-                        .set(self.pixel_index(x as usize, y as usize), color.into());
+                        .set(self.pixel_index(x as usize, y as usize), color);
                 }
             }
         }
@@ -202,7 +221,26 @@ impl<
     BUSY: Wait + Send,
     SPI: SpiDevice + Send,
     DELAY: DelayNs + Send,
-> AsyncDisplay<E6Color> for AsyncE6Display<DC, RST, BUSY, SPI, DELAY>
+    S: AsMut<[u8]> + AsRef<[u8]>,
+> Display<E6Color> for AsyncE6Display<DC, RST, BUSY, SPI, DELAY, S>
+{
+    fn width(&self) -> u16 {
+        self.width
+    }
+
+    fn height(&self) -> u16 {
+        self.height
+    }
+}
+
+impl<
+    DC: OutputPin + Send,
+    RST: OutputPin + Send,
+    BUSY: Wait + Send,
+    SPI: SpiDevice + Send,
+    DELAY: DelayNs + Send,
+    S: AsMut<[u8]> + AsRef<[u8]>,
+> AsyncDisplay<E6Color> for AsyncE6Display<DC, RST, BUSY, SPI, DELAY, S>
 {
     async fn initialize(&mut self) -> Result<(), Error> {
         info!("Initialize display");
@@ -227,14 +265,6 @@ impl<
         self.send_frame_buffer().await?;
         self.refresh_display().await
     }
-
-    fn width(&self) -> u16 {
-        self.width
-    }
-
-    fn height(&self) -> u16 {
-        self.height
-    }
 }
 
 impl<
@@ -243,7 +273,8 @@ impl<
     BUSY: Wait + Send,
     SPI: SpiDevice + Send,
     DELAY: DelayNs + Send,
-> OriginDimensions for AsyncE6Display<DC, RST, BUSY, SPI, DELAY>
+    S: AsMut<[u8]> + AsRef<[u8]>,
+> OriginDimensions for AsyncE6Display<DC, RST, BUSY, SPI, DELAY, S>
 {
     fn size(&self) -> Size {
         Size::new(self.width as u32, self.height as u32)
@@ -256,7 +287,8 @@ impl<
     BUSY: Wait + Send,
     SPI: SpiDevice + Send,
     DELAY: DelayNs + Send,
-> DrawTarget for AsyncE6Display<DC, RST, BUSY, SPI, DELAY>
+    S: AsMut<[u8]> + AsRef<[u8]>,
+> DrawTarget for AsyncE6Display<DC, RST, BUSY, SPI, DELAY, S>
 {
     type Color = E6Color;
     type Error = Error;

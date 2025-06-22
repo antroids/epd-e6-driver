@@ -17,15 +17,18 @@ pub struct Pixel<C: Color> {
 }
 
 pub trait Display<C: Color> {
-    fn initialize(&mut self) -> Result<(), Error>;
-    fn update(&mut self, iter: impl IntoIterator<Item = C>) -> Result<(), Error>;
-    fn refresh(&mut self) -> Result<(), Error>;
     fn width(&self) -> u16;
     fn height(&self) -> u16;
 
     fn len(&self) -> usize {
         self.width() as usize * self.height() as usize
     }
+}
+
+pub trait BlockingDisplay<C: Color>: Display<C> {
+    fn initialize(&mut self) -> Result<(), Error>;
+    fn update(&mut self, iter: impl IntoIterator<Item = C>) -> Result<(), Error>;
+    fn refresh(&mut self) -> Result<(), Error>;
 }
 
 pub trait PartialUpdate<C: Color> {
@@ -56,19 +59,13 @@ pub trait AsRgbColor {
 pub trait Color {}
 
 #[cfg(feature = "async")]
-pub trait AsyncDisplay<C: Color> {
+pub trait AsyncDisplay<C: Color>: Display<C> {
     fn initialize(&mut self) -> impl Future<Output = Result<(), Error>>;
     fn update(
         &mut self,
         iter: impl IntoIterator<Item = C>,
     ) -> impl Future<Output = Result<(), Error>>;
     fn refresh(&mut self) -> impl Future<Output = Result<(), Error>>;
-    fn width(&self) -> u16;
-    fn height(&self) -> u16;
-
-    fn len(&self) -> usize {
-        self.width() as usize * self.height() as usize
-    }
 }
 
 #[cfg(feature = "async")]

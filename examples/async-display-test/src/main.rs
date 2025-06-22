@@ -2,6 +2,7 @@
 #![no_main]
 extern crate alloc;
 
+use alloc::vec::Vec;
 use core::iter;
 use defmt::*;
 use defmt_rtt as _;
@@ -13,7 +14,6 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Delay, Timer};
 use embedded_alloc::LlffHeap as Heap;
-use epd_e6_driver::e6_display::E6Color;
 use epd_e6_driver::prelude::*;
 use panic_probe as _;
 use rp235x_hal::{self as hal};
@@ -60,7 +60,19 @@ async fn main(_spawner: Spawner) {
     let spi: Mutex<CriticalSectionRawMutex, _> = Mutex::new(spi);
     let spi_device = SpiDevice::new(&spi, cs);
 
-    let mut display = AsyncE6Display::new(WIDTH, HEIGHT, spi_device, dc, rst, busy, Delay);
+    let mut display = AsyncE6Display::new(
+        WIDTH,
+        HEIGHT,
+        spi_device,
+        dc,
+        rst,
+        busy,
+        Delay,
+        Nibbles::new(
+            Vec::with_capacity(WIDTH as usize * HEIGHT as usize / 2 + 1),
+            WIDTH as usize * HEIGHT as usize,
+        ),
+    );
 
     display.initialize().await.unwrap();
     let line_width = display.width() / 6;

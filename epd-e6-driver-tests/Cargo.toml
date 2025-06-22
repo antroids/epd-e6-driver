@@ -1,0 +1,7 @@
+[package]
+name = "epd-e6-driver-tests"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+epd-e6-driver = { path = "../.", features = ["async", "blocking"] }

@@ -1,4 +1,5 @@
 use core::marker::PhantomData;
+use core::ops::AddAssign;
 
 pub type Nibble = u8;
 
@@ -11,7 +12,7 @@ pub struct Nibbles<S: AsMut<[u8]> + AsRef<[u8]>, E: Into<Nibble> + From<Nibble>>
 impl<S: AsMut<[u8]> + AsRef<[u8]>, E: Into<Nibble> + From<Nibble>> Nibbles<S, E> {
     pub fn new(mut data: S, len: usize) -> Self {
         assert!(
-            data.as_mut().len() * 2 < len,
+            data.as_mut().len() * 2 >= len,
             "Nibbles underlying slice doesn't have enough space"
         );
         Self {
@@ -64,7 +65,9 @@ impl<'a, S: AsMut<[u8]> + AsRef<[u8]>, E: Into<Nibble> + From<Nibble>> Iterator
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.index < self.nibbles.len() {
-            Some(self.nibbles.get(self.index))
+            let result = Some(self.nibbles.get(self.index));
+            self.index.add_assign(1);
+            result
         } else {
             None
         }

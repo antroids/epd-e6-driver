@@ -2,6 +2,7 @@
 #![no_main]
 extern crate alloc;
 
+use alloc::vec::Vec;
 use core::iter;
 use defmt::*;
 use defmt_rtt as _;
@@ -96,6 +97,10 @@ fn main() -> ! {
         spi_reset_pin,
         spi_busy_pin,
         timer,
+        Nibbles::new(
+            Vec::with_capacity(WIDTH as usize * HEIGHT as usize / 2 + 1),
+            WIDTH as usize * HEIGHT as usize,
+        ),
     );
 
     display.initialize().unwrap();

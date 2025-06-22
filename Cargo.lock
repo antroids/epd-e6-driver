@@ -669,6 +669,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "epd-e6-driver-tests"
+version = "0.1.0"
+dependencies = [
+ "epd-e6-driver",
+]
+
+[[package]]
 name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

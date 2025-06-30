@@ -58,6 +58,10 @@ pub struct NibblesIterator<'a, S: AsMut<[u8]> + AsRef<[u8]>, E: Into<Nibble> + F
     index: usize,
 }
 
+pub const fn underlying_data_len(nibbles_len: usize) -> usize {
+    (nibbles_len + 1) / 2
+}
+
 impl<'a, S: AsMut<[u8]> + AsRef<[u8]>, E: Into<Nibble> + From<Nibble>> Iterator
     for NibblesIterator<'a, S, E>
 {

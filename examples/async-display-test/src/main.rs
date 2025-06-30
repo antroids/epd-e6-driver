@@ -2,6 +2,7 @@
 #![no_main]
 extern crate alloc;
 
+use alloc::vec;
 use alloc::vec::Vec;
 use core::iter;
 use defmt::*;
@@ -69,7 +70,7 @@ async fn main(_spawner: Spawner) {
         busy,
         Delay,
         Nibbles::new(
-            Vec::with_capacity(WIDTH as usize * HEIGHT as usize / 2 + 1),
+            vec![0u8; underlying_data_len(WIDTH as usize * HEIGHT as usize)],
             WIDTH as usize * HEIGHT as usize,
         ),
     );

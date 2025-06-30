@@ -1,17 +1,25 @@
-pub(crate) use crate::display::Display;
-pub use crate::display::{AsRgbColor, BlockingDisplay, Color, Error, PartialUpdate, RgbColor};
+pub use crate::display::RgbColor as DisplayRgbColor;
+pub use crate::display::{AsRgbColor, BlockingDisplay, Color, Error, PartialUpdate};
 use crate::nibbles::Nibbles;
-use core::ops::{RangeInclusive, SubAssign};
 use core::time::Duration;
-use defmt::{Format, info};
-use embedded_graphics::Pixel;
-use embedded_graphics::geometry::Size;
-use embedded_graphics::prelude::{DrawTarget, OriginDimensions, PixelColor};
+use defmt::Format;
+use embedded_graphics::pixelcolor::{BinaryColor, Rgb888};
+use embedded_graphics::prelude::{PixelColor, RgbColor};
 use embedded_hal::delay::DelayNs;
 use embedded_hal::digital::{InputPin, OutputPin, PinState};
 use embedded_hal::spi::SpiDevice;
 
-pub(crate) const SPI_CHUNK_SIZE: usize = 4096;
+#[cfg(feature = "blocking")]
+pub(crate) use crate::display::Display;
+#[cfg(feature = "blocking")]
+use core::ops::{RangeInclusive, SubAssign};
+#[cfg(feature = "blocking")]
+use embedded_graphics::Pixel;
+#[cfg(feature = "blocking")]
+use embedded_graphics::geometry::Size;
+#[cfg(feature = "blocking")]
+use embedded_graphics::prelude::{DrawTarget, OriginDimensions};
+
 pub(crate) const RESET_DELAY_MS: u32 = 30;
 pub(crate) const BUSY_WAIT_DELAY_MS: u32 = 100;
 pub(crate) const BUSY_WAIT_TIMEOUT_MS: Duration = Duration::from_millis(20_000);
@@ -82,6 +90,7 @@ pub(crate) enum DataCommand {
     Command,
 }
 
+#[allow(dead_code)]
 #[cfg(feature = "blocking")]
 impl<
     DC: OutputPin,
@@ -103,7 +112,7 @@ impl<
         frame_buffer: Nibbles<S, E6Color>,
     ) -> Self {
         assert!(
-            frame_buffer.len() < width as usize * height as usize,
+            frame_buffer.len() >= width as usize * height as usize,
             "Frame Buffer has not enough space for all pixels"
         );
         Self {
@@ -131,13 +140,7 @@ impl<
     }
 
     fn set_data_command(&mut self, data_command: DataCommand) -> Result<(), Error> {
-        self.dc_pin
-            .set_state(if let DataCommand::Data = data_command {
-                PinState::High
-            } else {
-                PinState::Low
-            })
-            .map_err(Error::from_digital_pin_error)
+        set_data_command(&mut self.dc_pin, data_command)
     }
 
     fn spi_write_command(&mut self, command: CommandCode) -> Result<(), Error> {
@@ -148,9 +151,21 @@ impl<
     }
 
     fn spi_write_data(&mut self, data: &[u8]) -> Result<(), Error> {
-        info!("Sending data chunk: {}", data.len());
+        defmt::info!("Sending data chunk: {}", data.len());
         self.set_data_command(DataCommand::Data)?;
         self.spi.write(&data).map_err(Error::from_spi_error)?;
+        Ok(())
+    }
+
+    fn spi_write_frame_buffer(&mut self) -> Result<(), Error> {
+        self.set_data_command(DataCommand::Data)?;
+        let len = crate::nibbles::underlying_data_len(self.frame_buffer.len());
+        let frame_buffer_data = &self.frame_buffer.as_underlying_data().as_ref()[0..len];
+        defmt::info!("Sending data chunk: {}", len);
+        self.spi
+            .write(frame_buffer_data)
+            .map_err(Error::from_spi_error)?;
+
         Ok(())
     }
 
@@ -194,7 +209,7 @@ impl<
     }
 
     fn busy_wait_timeout(&mut self, timeout: Duration) -> Result<(), Error> {
-        info!("The display could be busy, waiting...");
+        defmt::info!("The display could be busy, waiting...");
         let mut count = (timeout.as_millis() as u32 / BUSY_WAIT_DELAY_MS) + 1;
         while count > 0
             && self
@@ -205,7 +220,7 @@ impl<
             self.delay_source.delay_ms(BUSY_WAIT_DELAY_MS);
             count.sub_assign(1);
         }
-        info!("The display is free, continue...");
+        defmt::info!("The display is free, continue...");
         Ok(())
     }
 
@@ -221,22 +236,10 @@ impl<
     }
 
     fn send_frame_buffer(&mut self) -> Result<(), Error> {
-        let mut buf = [0u8; SPI_CHUNK_SIZE];
-        let len = self.frame_buffer.len();
-        let mut index = 0;
-
         self.spi_write_command(CommandCode::DTM1)?;
-        while index < len {
-            let chunk_size = (len - index).min(SPI_CHUNK_SIZE);
-            (&mut buf[0..chunk_size]).copy_from_slice(
-                &self.frame_buffer.as_underlying_data().as_ref()[index..index + chunk_size],
-            );
-            self.spi_write_data(&buf[0..chunk_size])?;
-            self.busy_wait()?;
-            index += chunk_size;
-        }
+        self.spi_write_frame_buffer()?;
         let result: [u8; 1] = self.spi_write_command_and_read(CommandCode::DSP)?;
-        info!("Frame buffer sent: {}, index: {}", result, index);
+        defmt::info!("Frame buffer sent, result: {}", result);
         self.busy_wait()?;
         Ok(())
     }
@@ -276,7 +279,7 @@ impl<
 > BlockingDisplay<E6Color> for E6Display<DC, RST, BUSY, SPI, DELAY, S>
 {
     fn initialize(&mut self) -> Result<(), Error> {
-        info!("Initialize display");
+        defmt::info!("Initialize display");
         self.reset()?;
         for (command_code, data) in INIT_SEQUENCE {
             self.spi_write_command_and_data(*command_code, data)?;
@@ -328,7 +331,7 @@ impl<
     }
 }
 
-const E6_PALETTE: [RgbColor; 6] = {
+const E6_PALETTE: [DisplayRgbColor; 6] = {
     [
         (0, 0, 0),
         (255, 255, 255),
@@ -339,7 +342,7 @@ const E6_PALETTE: [RgbColor; 6] = {
     ]
 };
 
-#[derive(Format, Copy, Clone, PartialOrd, PartialEq)]
+#[derive(Format, Copy, Clone, PartialOrd, PartialEq, Debug)]
 #[repr(u8)]
 pub enum E6Color {
     Black = 0,
@@ -351,7 +354,7 @@ pub enum E6Color {
 }
 
 impl AsRgbColor for E6Color {
-    fn rgb_color(&self) -> RgbColor {
+    fn rgb_color(&self) -> DisplayRgbColor {
         E6_PALETTE[*self as usize]
     }
 }
@@ -380,6 +383,34 @@ impl From<u8> for E6Color {
 impl From<E6Color> for u8 {
     fn from(value: E6Color) -> Self {
         value as u8
+    }
+}
+
+impl From<E6Color> for Rgb888 {
+    fn from(value: E6Color) -> Self {
+        let triplet = E6_PALETTE[value as usize];
+        Self::new(triplet.0, triplet.1, triplet.2)
+    }
+}
+
+impl From<Rgb888> for E6Color {
+    fn from(value: Rgb888) -> Self {
+        let color: DisplayRgbColor = (value.r(), value.g(), value.b()).into();
+        for (index, c) in E6_PALETTE.iter().enumerate() {
+            if color == *c {
+                return E6Color::from(index as u8);
+            }
+        }
+        panic!("Invalid E6Color: {:?}", color);
+    }
+}
+
+impl From<BinaryColor> for E6Color {
+    fn from(value: BinaryColor) -> Self {
+        match value {
+            BinaryColor::Off => E6Color::White,
+            BinaryColor::On => E6Color::Black,
+        }
     }
 }
 
@@ -421,4 +452,17 @@ impl<
         }
         Ok(())
     }
+}
+
+pub(crate) fn set_data_command(
+    dc_pin: &mut impl OutputPin,
+    data_command: DataCommand,
+) -> Result<(), Error> {
+    dc_pin
+        .set_state(if let DataCommand::Data = data_command {
+            PinState::High
+        } else {
+            PinState::Low
+        })
+        .map_err(Error::from_digital_pin_error)
 }

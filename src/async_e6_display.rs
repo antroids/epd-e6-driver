@@ -1,14 +1,14 @@
 use crate::display::{AsyncDisplay, AsyncPartialUpdate, Display, Error};
 use crate::e6_display::{
-    CommandCode, DataCommand, E6Color, INIT_SEQUENCE, RESET_DELAY_MS, SPI_CHUNK_SIZE,
+    CommandCode, DataCommand, E6Color, INIT_SEQUENCE, RESET_DELAY_MS, set_data_command,
 };
-use crate::nibbles::Nibbles;
+use crate::nibbles::{Nibbles, underlying_data_len};
 use core::ops::RangeInclusive;
 use defmt::info;
 use embedded_graphics::Pixel;
 use embedded_graphics::draw_target::DrawTarget;
 use embedded_graphics::geometry::{OriginDimensions, Size};
-use embedded_hal::digital::{OutputPin, PinState};
+use embedded_hal::digital::OutputPin;
 use embedded_hal_async::delay::DelayNs;
 use embedded_hal_async::digital::Wait;
 use embedded_hal_async::spi::SpiDevice;
@@ -31,6 +31,7 @@ pub struct AsyncE6Display<
     frame_buffer: Nibbles<S, E6Color>,
 }
 
+#[allow(dead_code)]
 impl<
     DC: OutputPin,
     RST: OutputPin,
@@ -51,7 +52,7 @@ impl<
         frame_buffer: Nibbles<S, E6Color>,
     ) -> Self {
         assert!(
-            frame_buffer.len() < width as usize * height as usize,
+            frame_buffer.len() >= width as usize * height as usize,
             "Frame Buffer has not enough space for all pixels"
         );
         Self {
@@ -80,13 +81,7 @@ impl<
     }
 
     fn set_data_command(&mut self, data_command: DataCommand) -> Result<(), Error> {
-        self.dc_pin
-            .set_state(if let DataCommand::Data = data_command {
-                PinState::High
-            } else {
-                PinState::Low
-            })
-            .map_err(Error::from_digital_pin_error)
+        set_data_command(&mut self.dc_pin, data_command)
     }
 
     async fn spi_write_command(&mut self, command: CommandCode) -> Result<(), Error> {
@@ -101,6 +96,18 @@ impl<
         info!("Sending data chunk: {}", data.len());
         self.set_data_command(DataCommand::Data)?;
         self.spi.write(&data).await.map_err(Error::from_spi_error)?;
+        Ok(())
+    }
+
+    async fn spi_write_frame_buffer(&mut self) -> Result<(), Error> {
+        self.set_data_command(DataCommand::Data)?;
+        let len = underlying_data_len(self.frame_buffer.len());
+        let frame_buffer_data = &self.frame_buffer.as_underlying_data().as_ref()[0..len];
+        info!("Sending data chunk: {}", len);
+        self.spi
+            .write(frame_buffer_data)
+            .await
+            .map_err(Error::from_spi_error)?;
         Ok(())
     }
 
@@ -162,22 +169,10 @@ impl<
     }
 
     async fn send_frame_buffer(&mut self) -> Result<(), Error> {
-        let mut buf = [0u8; SPI_CHUNK_SIZE];
-        let len = self.frame_buffer.len();
-        let mut index = 0;
-
         self.spi_write_command(CommandCode::DTM1).await?;
-        while index < len {
-            let chunk_size = (len - index).min(SPI_CHUNK_SIZE);
-            (&mut buf[0..chunk_size]).copy_from_slice(
-                &self.frame_buffer.as_underlying_data().as_ref()[index..index + chunk_size],
-            );
-            self.spi_write_data(&buf[0..chunk_size]).await?;
-            self.busy_wait().await?;
-            index += chunk_size;
-        }
+        self.spi_write_frame_buffer().await?;
         let result: [u8; 1] = self.spi_write_command_and_read(CommandCode::DSP).await?;
-        info!("Frame buffer sent: {}, index: {}", result, index);
+        info!("Frame buffer sent, result: {}", result);
         self.busy_wait().await?;
         Ok(())
     }

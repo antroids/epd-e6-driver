@@ -13,6 +13,7 @@ pub mod prelude {
     pub use crate::e6_display::E6Color;
     pub use crate::nibbles::Nibbles;
     pub use crate::nibbles::NibblesIterator;
+    pub use crate::nibbles::underlying_data_len;
 
     #[cfg(feature = "blocking")]
     pub use crate::e6_display::BlockingDisplay;

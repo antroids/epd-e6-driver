@@ -98,7 +98,7 @@ fn main() -> ! {
         spi_busy_pin,
         timer,
         Nibbles::new(
-            Vec::with_capacity(WIDTH as usize * HEIGHT as usize / 2 + 1),
+            [0u8; underlying_data_len(WIDTH as usize * HEIGHT as usize)],
             WIDTH as usize * HEIGHT as usize,
         ),
     );
